@@ -82,7 +82,7 @@ get_model_wrapper = function(model){
     gen_data = dgps[[instance$name]]
     #dat = instance$dat
     dat = gen_data(instance$n)
-    nrefits = 1:job$prob.pars$max_refits
+    nrefits = c(15, job$prob.pars$max_refits) #1:job$prob.pars$max_refits
     samp_strategy = job$prob.pars$sampling_strategy
     gd = NA
     results = lapply(nrefits, function(m){
@@ -221,10 +221,31 @@ pfi = function(dat, fh, nperm, fname, gen_data = NA){
 #' @param nperm Number of permutations
 #' @param gen_data NA for permutation. set to function for specific data generation.
 #' @return data.frame with PFIs
-compute_pfis = function(test_dat, nperm, fh, gen_data = NA){
+compute_pfis = function(test_dat, nperm, fh, gen_data = NA, missings = TRUE){
   fnames = setdiff(colnames(test_dat), "y")
+  
+  if (missings) {
+    test_dat = missMethods::delete_MCAR(test_dat, p = 0.4)
+    #test_dat = missMethods::impute_mean(test_dat)
+    imp = mice::mice(test_dat, m = 20, print = FALSE)
+    test_dats = complete(imp, "all")
+  }
+  
   pfis = lapply(fnames, function(fname) {
-    pfis_x = pfi(test_dat, fh, nperm, fname, gen_data = gen_data)
+    #browser()
+    if (missings) {
+      pfis_x = rbindlist(lapply(test_dats, pfi, fh = fh, nperm = nperm, fname = fname, gen_data = gen_data))
+      pfis_x[, mi_id := 1:nrow(pfis_x)]
+    } else {
+      pfis_x = pfi(test_dat, fh, nperm, fname, gen_data = gen_data)
+    }
+    
+
+    # sapply(test_dats, function(dat) {
+    #   unlist(pfi(test_dat, fh, nperm, fname, gen_data = gen_data))
+    # })
+    # 
+    #pfis_x = pfi(test_dat, fh, nperm, fname, gen_data = gen_data)
     pfis_x$feature = fname
     pfis_x
     })
@@ -240,9 +261,20 @@ compute_pfis = function(test_dat, nperm, fh, gen_data = NA){
 #' @return data.frame with PFIs and their lower and upper CI boundaries.
 compute_pfi_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
   nrefits = length(unique(resx$refit_id))
-  resx = resx[, .(var3 = var(pfi),
-                  pfi = mean(pfi)),
-              by = list(feature)]
+  aa = resx[, .(var = var(pfi),
+           pfi = mean(pfi)),
+       by = list(feature, mi_id)]
+  myfun = function(...) {
+    mice::pool.scalar(...)$t
+  }
+  resx = aa[, .(var3 = myfun(pfi, var), 
+         pfi = mean(pfi)), 
+     by = list(feature)]
+  
+  # browser()
+  # resx = resx[, .(var3 = var(pfi),
+  #                 pfi = mean(pfi)),
+  #             by = list(feature)]
   m = (1/nrefits)
   if (adjust) m = m + get_adjustment_term(type)
   resx$se2 = m * resx$var3
@@ -270,7 +302,7 @@ get_true_pfi = function(ntrue, ntrain, gen_data, train_mod, nperm = 5){
     mod = train_mod(y ~ ., data = train_dat)
     fh = function(x) predict(mod, newdata = x)
     test_dat = gen_data(nsample = SAMPLING_FRACTION * ntrain)
-    pfis = compute_pfis(test_dat, nperm, fh, gen_data = gen_data)
+    pfis = compute_pfis(test_dat, nperm, fh, gen_data = gen_data, missings = FALSE)
     pfis[,.(pfi = mean(pfi)), by = list(feature)]
   })
   true_pfis = rbindlist(true_pfis)
@@ -304,10 +336,25 @@ pdp = function(dat, fh, fname, xgrid = c(0.1, 0.3, 0.5, 0.7, 0.9)){
 #' @param test_dat data.frame for MC integration
 #' @param fh prediction function
 #' @return data.frame with PDPs
-compute_pdps = function(test_dat, fh){
+compute_pdps = function(test_dat, fh, missings = TRUE){
+  
+  if (missings) {
+    test_dat = missMethods::delete_MCAR(test_dat, p = 0.4)
+    #test_dat = missMethods::impute_mean(test_dat)
+    imp = mice::mice(test_dat, m = 20, print = FALSE)
+    test_dats = complete(imp, "all")
+  }
+    
   fnames = setdiff(colnames(test_dat), "y")
   pdps = lapply(fnames, function(fname) {
-    pdp_dat = pdp(test_dat, fh, fname)
+    
+    if (missings) {
+      pdp_dat = rbindlist(lapply(test_dats, pdp, fh = fh, fname = fname))
+      pdp_dat[, mi_id := 1:nrow(pdp_dat)]
+    } else {
+      pdp_dat = pdp(test_dat, fh, fname)
+    }
+    
     pdp_dat$feature = fname
     pdp_dat
   })
@@ -323,9 +370,20 @@ compute_pdps = function(test_dat, fh){
 #' @return data.frame with PDPs and their lower and upper CI boundaries.
 compute_pdp_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
   nrefits = length(unique(resx$refit_id))
-  resx = resx[, .(var2 = var(pdp),
-                  mpdp =  mean(pdp)),
-              by = list(feature, feature_value)]
+  
+  aa = resx[, .(var = var(pdp),
+                pdp = mean(pdp)),
+            by = list(feature, feature_value, mi_id)]
+  myfun = function(...) {
+    mice::pool.scalar(...)$t
+  }
+  resx = aa[, .(var3 = myfun(pdp, var), 
+                pdp = mean(pdp)), 
+            by = list(feature, feature_value)]
+  
+  # resx = resx[, .(var2 = var(pdp),
+  #                 mpdp =  mean(pdp)),
+  #             by = list(feature, feature_value)]
 
   m = (1/nrefits)
   if (adjust) m = m + get_adjustment_term(type)
@@ -355,7 +413,7 @@ get_true_pdp = function(ntrue, ntrain, gen_data, train_mod){
     fh = function(x) predict(mod, newdata = x)
     # Here sample size does not matter. Only tradeoff: Accuracy and computation time
     test_dat = gen_data(nsample = SAMPLING_FRACTION * ntrain)
-    pdps = compute_pdps(test_dat, fh)
+    pdps = compute_pdps(test_dat, fh, missings = FALSE)
     pdps[,.(pdp = mean(pdp)), by = list(feature, feature_value)]
 })
   true_pdps = rbindlist(true_pdps)

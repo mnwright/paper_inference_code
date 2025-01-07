@@ -22,4 +22,5 @@ Depends:
     tidyr,
     kableExtra,
     patchwork,
-    randomForest
+    randomForest,
+    missMethods

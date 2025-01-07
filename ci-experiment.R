@@ -6,7 +6,7 @@
 # =============================================================================
 # Experiment Settings
 # =============================================================================
-N_EXPERIMENTS = 10000
+N_EXPERIMENTS = 100 #10000
 N_TRAIN = c(100, 1000)
 #N_SAMPLE = 100
 MAX_REFITS = 30
@@ -15,7 +15,7 @@ N_PERM = 5
 # Number of refits to estimate true PFI/PDP
 # This should be set high
 N_TRUE = 10000
-NC = 6
+NC = 20
 
 # This loads all dependencies and utility functions
 devtools::load_all()
@@ -38,9 +38,9 @@ addProblem(name = "x1234", data = data.frame(), fun = gdata, seed = 1)
 # see file R/ci-experiment.R
 addAlgorithm(name = "lm",  lm_wrapper)
 addAlgorithm(name = "rpart",  rpart_wrapper)
-addAlgorithm(name = "randomForest",  rf_wrapper)
+#addAlgorithm(name = "randomForest",  rf_wrapper)
 
-strgs = c("subsampling", "bootstrap", "ideal")
+strgs = "ideal" #c("subsampling", "bootstrap", "ideal")
 setting = expand.grid(n = N_TRAIN,
                       max_refits = MAX_REFITS,
                       n_perm = N_PERM,
@@ -163,4 +163,5 @@ coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean
                                  by = list(algorithm, problem, sampling_strategy, nrefits, adjusted, n)]
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
 print(coverage_pdp_mean)
+
 
