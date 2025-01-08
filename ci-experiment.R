@@ -15,7 +15,7 @@ N_PERM = 5
 # Number of refits to estimate true PFI/PDP
 # This should be set high
 N_TRUE = 10000
-NC = 20
+NC = 10
 
 # This loads all dependencies and utility functions
 devtools::load_all()
@@ -41,10 +41,12 @@ addAlgorithm(name = "rpart",  rpart_wrapper)
 #addAlgorithm(name = "randomForest",  rf_wrapper)
 
 strgs = "ideal" #c("subsampling", "bootstrap", "ideal")
+impute = c("none", "mean", "mice")
 setting = expand.grid(n = N_TRAIN,
                       max_refits = MAX_REFITS,
                       n_perm = N_PERM,
-                      sampling_strategy = strgs)
+                      sampling_strategy = strgs, 
+                      impute = impute)
 
 pdes = list(x12 = setting, x1234 = setting)
 
@@ -142,10 +144,10 @@ cis_pfi = cis_pfi[, in_ci := (lower <= tpfi) & (tpfi <= upper)]
 coverage_pfi = cis_pfi[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                   avg_width = mean(upper - lower)),
-               by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, adjusted, n)]
+               by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, adjusted, n, impute)]
 
 coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
-                                     by = list(algorithm, problem, sampling_strategy, nrefits, adjusted, n)]
+                                     by = list(algorithm, problem, sampling_strategy, nrefits, adjusted, n, impute)]
 print(coverage_pfi_mean)
 saveRDS(coverage_pfi_mean, file = sprintf("%s/coverage_pfi_mean.Rds", res_dir))
 
@@ -157,10 +159,10 @@ cis_pdp = cis_pdp[, in_ci := (lower <= tpdp) & (tpdp <= upper)]
 coverage_pdp = cis_pdp[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                   avg_width = mean(upper - lower)),
-               by = list(feature, feature_value, algorithm, problem, sampling_strategy, max_refits, nrefits, adjusted, n)]
+               by = list(feature, feature_value, algorithm, problem, sampling_strategy, max_refits, nrefits, adjusted, n, impute)]
 
 coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
-                                 by = list(algorithm, problem, sampling_strategy, nrefits, adjusted, n)]
+                                 by = list(algorithm, problem, sampling_strategy, nrefits, adjusted, n, impute)]
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
 print(coverage_pdp_mean)
 
