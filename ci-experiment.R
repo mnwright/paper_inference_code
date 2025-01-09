@@ -15,7 +15,7 @@ N_PERM = 5
 # Number of refits to estimate true PFI/PDP
 # This should be set high
 N_TRUE = 10000
-NC = 10
+NC = 20
 
 # This loads all dependencies and utility functions
 devtools::load_all()

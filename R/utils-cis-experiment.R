@@ -99,7 +99,7 @@ get_model_wrapper = function(model){
         # Completely fresh data for both training and test
         train_dat = gen_data(SAMPLING_FRACTION * nrow(dat))
         test_dat  = gen_data(SAMPLING_FRACTION * nrow(dat))
-        gd = gen_data
+        #gd = gen_data
       } else {
         print(sprintf("Strategy %s not implemented", job$prob.pars$sampling_strategy))
       }
