@@ -99,16 +99,104 @@ get_model_wrapper = function(model){
         # Completely fresh data for both training and test
         train_dat = gen_data(SAMPLING_FRACTION * nrow(dat))
         test_dat  = gen_data(SAMPLING_FRACTION * nrow(dat))
-        gd = gen_data
+        #gd = gen_data
       } else {
         print(sprintf("Strategy %s not implemented", job$prob.pars$sampling_strategy))
       }
+      
+      # Introduce missing data and impute
+      pattern = job$prob.pars$pattern
+      missing_prob = job$prob.pars$missing_prob
+      if (pattern == "MCAR") {
+        miss_fun <- function(data) missMethods::delete_MCAR(data, p = missing_prob)
+      } else if (pattern == "MAR") {
+        miss_fun <- function(data) {
+          # Random half (rounded down) of columns are missing, the other half are used as control variables
+          cols_mis <- sample(1:ncol(data), floor(ncol(data)/2))
+          cols_ctrl <- sample(setdiff(1:ncol(data), cols_mis), floor(ncol(data)/2))
+          missMethods::delete_MAR_rank(data, p = missing_prob, 
+                                       cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
+        }
+      } else if (pattern == "MNAR") {
+        miss_fun <- function(data) missMethods::delete_MNAR_rank(data, p = missing_prob)
+      } else {
+        stop("Unknown missing data pattern")
+      }
+      
+      # Impute missing data
+      imputation_method = job$prob.pars$imputation_method
+      imp_m = job$prob.pars$m
+      if (imputation_method == "mean") {
+        impute_fun <- function(data) list(missMethods::impute_mean(data))
+      } else if (imputation_method == "mice") {
+        impute_fun <- function(data) {
+          imp <- mice::mice(data, m = imp_m, print = FALSE)
+          complete(imp, "all")
+        }
+      } else if (imputation_method == "missForest") {
+        impute_fun <- function(data) list(missRanger(data, verbose = 0, num.threads = 1))
+      } else {
+        stop("Unknown imputation method")
+      }
+      
+      train_missing = job$prob.pars$train_missing
+      test_missing = job$prob.pars$test_missing
+      if (train_missing) {
+        train_dat <- miss_fun(train_dat)
+        train_dat <- impute_fun(train_dat)
+      } else {
+        train_dat <- list(train_dat)
+      }
+      if (test_missing) {
+        test_dat <- miss_fun(test_dat)
+        test_dat <- impute_fun(test_dat)
+      } else {
+        test_dat <- list(test_dat)
+      }
+      
       # Creates the prediction function
-      mod = train_mod(y ~ ., data = train_dat)
-      fh = function(x) predict(mod, newdata = x)
-      pfis = compute_pfis(test_dat, job$prob.pars$n_perm, fh, gen_data = gd, impute = job$prob.pars$impute)
-      pdps = compute_pdps(test_dat, fh, impute = job$prob.pars$impute)
-      pfis$refit_id = pdps$refit_id = m
+      mods <- lapply(1:length(train_dat), function(i) {
+        train_mod(y ~ ., data = train_dat[[i]])
+      })
+      
+      imps <- max(length(train_dat), length(test_dat))
+      
+      pfis = rbindlist(lapply(1:imps, function(i) {
+        if (length(train_dat) > 1) {
+          fh = function(x) predict(mods[[i]], newdata = x)
+        } else {
+          fh = function(x) predict(mods[[1]], newdata = x)
+        }
+        if (length(test_dat) > 1) {
+          td = test_dat[[i]]
+        } else {
+          td = test_dat[[1]]
+        }
+        
+        pfis = compute_pfis(td, job$prob.pars$n_perm, fh, gen_data = gd)
+        pfis$refit_id = m
+        pfis$imp_id = i
+        pfis
+      }))
+      
+      pdps = rbindlist(lapply(1:imps, function(i) {
+        if (length(train_dat) > 1) {
+          fh = function(x) predict(mods[[i]], newdata = x)
+        } else {
+          fh = function(x) predict(mods[[1]], newdata = x)
+        }
+        if (length(test_dat) > 1) {
+          td = test_dat[[i]]
+        } else {
+          td = test_dat[[1]]
+        }
+        
+        pdps = compute_pdps(td, fh)
+        pdps$refit_id = m
+        pdps$imp_id = i
+        pdps
+      }))
+      
       list("pfis" = pfis, "pdps" = pdps)
     })
     pfis = rbindlist(lapply(results, function(x) x[["pfis"]]))
@@ -221,30 +309,13 @@ pfi = function(dat, fh, nperm, fname, gen_data = NA){
 #' @param nperm Number of permutations
 #' @param gen_data NA for permutation. set to function for specific data generation.
 #' @return data.frame with PFIs
-compute_pfis = function(test_dat, nperm, fh, gen_data = NA, impute = "none"){
-  if (impute != "none") {
-    test_dat = missMethods::delete_MCAR(test_dat, p = 0.4)
-    if (impute == "mean") {
-      test_dat = missMethods::impute_mean(test_dat)
-    } else if (impute == "mice") {
-      imp = mice::mice(test_dat, m = 10, print = FALSE)
-      test_dats = complete(imp, "all")
-    } else {
-      stop("Unknown impute value.")
-    }
-  }
-  
+compute_pfis = function(test_dat, nperm, fh, gen_data = NA){
   fnames = setdiff(colnames(test_dat), "y")
   pfis = lapply(fnames, function(fname) {
-    if (impute == "mice") {
-      pfis_x = rbindlist(lapply(test_dats, pfi, fh = fh, nperm = nperm, fname = fname, gen_data = gen_data))
-      pfis_x[, mi_id := 1:nrow(pfis_x)]
-    } else {
-      pfis_x = pfi(test_dat, fh, nperm, fname, gen_data = gen_data)
-    }
+    pfis_x = pfi(test_dat, fh, nperm, fname, gen_data = gen_data)
     pfis_x$feature = fname
     pfis_x
-    })
+  })
   rbindlist(pfis)
 }
 
@@ -257,23 +328,22 @@ compute_pfis = function(test_dat, nperm, fh, gen_data = NA, impute = "none"){
 #' @return data.frame with PFIs and their lower and upper CI boundaries.
 compute_pfi_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
   nrefits = length(unique(resx$refit_id))
-  
-  if ("mi_id" %in% colnames(resx)) {
+  if (resx[, any(imp_id) > 1]) {
     aa = resx[, .(var = var(pfi),
-             pfi = mean(pfi)),
-         by = list(feature, mi_id)]
+                  pfi = mean(pfi)),
+              by = list(feature, imp_id)]
     myfun = function(...) {
       mice::pool.scalar(...)$t
     }
     resx = aa[, .(var3 = myfun(pfi, var), 
-           pfi = mean(pfi)), 
-       by = list(feature)]
+                  pfi = mean(pfi)), 
+              by = list(feature)]
   } else {
     resx = resx[, .(var3 = var(pfi),
                     pfi = mean(pfi)),
                 by = list(feature)]
   }
-
+  
   m = (1/nrefits)
   if (adjust) m = m + get_adjustment_term(type)
   resx$se2 = m * resx$var3
@@ -335,27 +405,10 @@ pdp = function(dat, fh, fname, xgrid = c(0.1, 0.3, 0.5, 0.7, 0.9)){
 #' @param test_dat data.frame for MC integration
 #' @param fh prediction function
 #' @return data.frame with PDPs
-compute_pdps = function(test_dat, fh, impute = "none"){
-  
-  if (impute != "none") {
-    test_dat = missMethods::delete_MCAR(test_dat, p = 0.4)
-    if (impute == "mean") {
-      test_dat = missMethods::impute_mean(test_dat)
-    } else if (impute == "mice") {
-      imp = mice::mice(test_dat, m = 10, print = FALSE)
-      test_dats = complete(imp, "all")
-    } else {
-      stop("Unknown impute value.")
-    }
-  }
+compute_pdps = function(test_dat, fh){
   fnames = setdiff(colnames(test_dat), "y")
   pdps = lapply(fnames, function(fname) {
-    if (impute == "mice") {
-      pdp_dat = rbindlist(lapply(test_dats, pdp, fh = fh, fname = fname))
-      pdp_dat[, mi_id := 1:nrow(pdp_dat)]
-    } else {
-      pdp_dat = pdp(test_dat, fh, fname)
-    }
+    pdp_dat = pdp(test_dat, fh, fname)
     pdp_dat$feature = fname
     pdp_dat
   })
@@ -371,11 +424,10 @@ compute_pdps = function(test_dat, fh, impute = "none"){
 #' @return data.frame with PDPs and their lower and upper CI boundaries.
 compute_pdp_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
   nrefits = length(unique(resx$refit_id))
-  
-  if ("mi_id" %in% colnames(resx)) {
+  if (resx[, any(imp_id) > 1]) {
     aa = resx[, .(var = var(pdp),
                   pdp = mean(pdp)),
-              by = list(feature, feature_value, mi_id)]
+              by = list(feature, feature_value, imp_id)]
     myfun = function(...) {
       mice::pool.scalar(...)$t
     }
@@ -387,7 +439,7 @@ compute_pdp_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
                     mpdp =  mean(pdp)),
                 by = list(feature, feature_value)]
   }
-
+  
   m = (1/nrefits)
   if (adjust) m = m + get_adjustment_term(type)
   resx$se2 = m * resx$var2
