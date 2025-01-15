@@ -7,7 +7,7 @@
 # Experiment Settings
 # =============================================================================
 N_EXPERIMENTS = 100 #10000
-N_TRAIN = c(100, 1000)
+N_TRAIN = 1000
 #N_SAMPLE = 100
 MAX_REFITS = 30
 # Number of permutations for PFI computation
@@ -40,13 +40,12 @@ addAlgorithm(name = "lm",  lm_wrapper)
 addAlgorithm(name = "rpart",  rpart_wrapper)
 addAlgorithm(name = "randomForest",  rf_wrapper)
 
-strgs = c("subsampling", "bootstrap", "ideal")
+strgs = c("bootstrap", "ideal") #c("subsampling", "bootstrap", "ideal")
 missing_probs <- c(0.1, 0.2, 0.4) # Proportion of missing data
 patterns <- c("MCAR", "MAR", "MNAR") # Missing data patterns
 train_missing <- c(TRUE, FALSE) # Missing data in training data
 test_missing <- c(TRUE, FALSE) # Missing data in test data
 imputation_methods <- c("mean", "missForest", "mice")
-m <- 4 # Number of multiple imputations
 setting = expand.grid(n = N_TRAIN,
                       max_refits = MAX_REFITS,
                       n_perm = N_PERM,
@@ -55,12 +54,14 @@ setting = expand.grid(n = N_TRAIN,
                       pattern = patterns, 
                       train_missing = train_missing,
                       test_missing = test_missing, 
-                      imputation_method = imputation_methods,
-                      m = m
+                      imputation_method = imputation_methods
                       )
+setting <- data.table(setting)
+
+# Only consider missings in both training and test (or none at all)
+setting <- setting[(!train_missing & !test_missing) | (train_missing & test_missing), ]
 
 # Remove duplicated experiments (no missing data)
-setting <- data.table(setting)
 setting <- setting[!(!train_missing & !test_missing & (missing_prob != 0.1 | pattern != "MCAR" | imputation_method != "mean")), ]
 
 pdes = list(x12 = setting, x1234 = setting)
@@ -162,7 +163,7 @@ coverage_pfi = cis_pfi[,.(coverage = mean(in_ci),
 
 coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
                                      by = list(algorithm, problem, sampling_strategy, nrefits, 
-                                               adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                                               adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_pfi_mean)
 saveRDS(coverage_pfi_mean, file = sprintf("%s/coverage_pfi_mean.Rds", res_dir))
 
@@ -179,7 +180,7 @@ coverage_pdp = cis_pdp[,.(coverage = mean(in_ci),
 
 coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
-                                           adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                                           adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
 print(coverage_pdp_mean)
 
@@ -195,6 +196,6 @@ coverage_shap = cis_shap[,.(coverage = mean(in_ci),
 
 coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
-                                           adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                                           adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_shap_mean)
 saveRDS(coverage_shap_mean, file = sprintf("%s/coverage_shap_mean.Rds", res_dir))

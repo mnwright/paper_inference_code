@@ -128,12 +128,11 @@ get_model_wrapper = function(model){
       
       # Impute missing data
       imputation_method = job$prob.pars$imputation_method
-      imp_m = job$prob.pars$m
       if (imputation_method == "mean") {
         impute_fun <- function(data) list(missMethods::impute_mean(data))
       } else if (imputation_method == "mice") {
         impute_fun <- function(data) {
-          imp <- mice::mice(data, m = imp_m, print = FALSE)
+          imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE)
           complete(imp, "all")
         }
       } else if (imputation_method == "missForest") {
