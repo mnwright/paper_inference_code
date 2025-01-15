@@ -164,6 +164,7 @@ get_model_wrapper = function(model){
       
       imps <- max(length(train_dat), length(test_dat))
       
+      # PFI
       pfis = rbindlist(lapply(1:imps, function(i) {
         if (length(train_dat) > 1) {
           fh = function(x) predict(mods[[i]], newdata = x)
@@ -182,6 +183,7 @@ get_model_wrapper = function(model){
         pfis
       }))
       
+      # PDP
       pdps = rbindlist(lapply(1:imps, function(i) {
         if (length(train_dat) > 1) {
           fh = function(x) predict(mods[[i]], newdata = x)
@@ -200,10 +202,34 @@ get_model_wrapper = function(model){
         pdps
       }))
       
-      list("pfis" = pfis, "pdps" = pdps)
+      # SHAP
+      shaps = rbindlist(lapply(1:imps, function(i) {
+        if (length(train_dat) > 1) {
+          fh = function(x) predict(mods[[i]], newdata = x)
+          fit = mods[[i]]
+          trdat = train_dat[[i]] 
+        } else {
+          fh = function(x) predict(mods[[1]], newdata = x)
+          fit = mods[[1]]
+          trdat = train_dat[[1]] 
+        }
+        if (length(test_dat) > 1) {
+          tedat = test_dat[[i]]
+        } else {
+          tedat = test_dat[[1]]
+        }
+        
+        shaps = compute_shaps(tedat, trdat, fh, fit)
+        shaps$refit_id = m
+        shaps$imp_id = i
+        shaps
+      }))
+      
+      list("pfis" = pfis, "pdps" = pdps, shaps = shaps)
     })
     pfis = rbindlist(lapply(results, function(x) x[["pfis"]]))
     pdps = rbindlist(lapply(results, function(x) x[["pdps"]]))
+    shaps = rbindlist(lapply(results, function(x) x[["shaps"]]))
 
     # Loop over refit_id to simulate different number of models
     res_pfi = rbindlist(lapply(2:max(pfis$refit_id), function(i) {
@@ -232,9 +258,23 @@ get_model_wrapper = function(model){
       res[, nrefits := i]
       res
     }))
+    
+    # Loop over refit_id to simulate different number of models
+    res_shap = rbindlist(lapply(2:max(shaps$refit_id), function(i) {
+      t_alpha = qt(1 - 0.05/2, df = i - 1)
+      res = compute_shap_cis(shaps[refit_id <= i, ], t_alpha, adjust = FALSE, type = samp_strategy)
+      res$adjusted = FALSE
+      if (samp_strategy != "ideal") {
+        res_adjusted = compute_shap_cis(shaps[refit_id <= i, ], t_alpha, adjust = TRUE, type = samp_strategy)
+        res = rbind(data.table(res),
+                    data.table(res_adjusted, adjusted = TRUE))
+      }
+      res[, nrefits := i]
+      res
+    }))
 
-    res_pdp$job.id = res_pfi$job.id = job$id
-    list("pdp" = res_pdp, "pfi" = res_pfi)
+    res_shap$job.id = res_pdp$job.id = res_pfi$job.id = job$id
+    list("pdp" = res_pdp, "pfi" = res_pfi, "shap" = res_shap)
   }
 }
 
@@ -478,3 +518,81 @@ get_true_pdp = function(ntrue, ntrain, gen_data, train_mod){
   true_pdps[,.(tpdp = mean(pdp), tse = sqrt(1/ntrue) * sd(pdp)), by = list(feature, feature_value)]
 }
 
+# =============================================================================
+# SHAP-specific functions
+# =============================================================================
+
+#' Compute SHAP for all features 
+#'
+#' @param test_dat data.frame with unseen data
+#' @param fh prediction function
+#' @return data.frame with SHAP values
+compute_shaps = function(test_dat, train_dat, fh, fit){
+  fnames = setdiff(colnames(test_dat), "y")
+  explanation  <- shapr::explain(fit, test_dat[, fnames], train_dat[, fnames], 
+                                 approach = "empirical", phi0 = mean(train_dat$y), 
+                                 predict_model = stats::predict, verbose = NULL)
+  shaps <- colMeans(abs(explanation$shapley_values_est[, ..fnames]))
+  data.table(shap = shaps, feature = names(shaps))
+  #browser()
+  #melt(explanation$shapley_values_est[, ..fnames], measure.vars = fnames, 
+  #     variable.name = "feature", value.name = "shap")
+}
+
+#' Compute confidence intervals for SHAP
+#' 
+#' @param resx data.frame with the SHAP results
+#' @param t_alpha 1-alpha/2 quantile of t-distribution
+#' @param adjust TRUE if variance adjustment term by Nadeau/Bengio should be used
+#' @param type Either "bootstrap" or "subsampling". Ignored if adjust is FALSE. 
+#' @return data.frame with SHAP values and their lower and upper CI boundaries.
+compute_shap_cis = function(resx, t_alpha, adjust = FALSE, type = NULL){
+  nrefits = length(unique(resx$refit_id))
+  if (resx[, any(imp_id) > 1]) {
+    aa = resx[, .(var = var(shap),
+                  shap = mean(shap)),
+              by = list(feature, imp_id)]
+    myfun = function(...) {
+      mice::pool.scalar(...)$t
+    }
+    resx = aa[, .(var3 = myfun(shap, var), 
+                  shap = mean(shap)), 
+              by = list(feature)]
+  } else {
+    resx = resx[, .(var3 = var(shap),
+                    shap = mean(shap)),
+                by = list(feature)]
+  }
+  
+  m = (1/nrefits)
+  if (adjust) m = m + get_adjustment_term(type)
+  resx$se2 = m * resx$var3
+  resx$lower = resx$shap - t_alpha * sqrt(resx$se2)
+  resx$upper = resx$shap + t_alpha * sqrt(resx$se2)
+  resx
+}
+
+#' Compute the expected learner SHAP values for scenario
+#'
+#' Used as groundtruth in the experiment. Repeatedly draws
+#' new data, fits model and computes SHAP values
+#' Results are averaged over these SHAP values.
+#'
+#' @param ntrue Number of times new data is sampled
+#' @param ntrain Size of sampled data
+#' @param gen_data function for data generation
+#' @param train_mod function to train model
+#' @return data.frame with true SHAP values
+get_true_shap = function(ntrue, ntrain, gen_data, train_mod){
+  true_shapss = mclapply(1:ntrue,  mc.cores = NC, function(m){
+    # Make sure nsample is the same as for resampled models
+    train_dat = gen_data(nsample = SAMPLING_FRACTION * ntrain)
+    mod = train_mod(y ~ ., train_dat)
+    fh = function(x) predict(mod, newdata = x)
+    test_dat = gen_data(nsample = SAMPLING_FRACTION * ntrain)
+    shaps = compute_shaps(test_dat, train_dat, fh, mod)
+    shaps[,.(shaps = mean(shaps)), by = list(feature)]
+  })
+  true_pdps = rbindlist(true_pdps)
+  true_pdps[,.(tshap = mean(shaps), tse = sqrt(1/ntrue) * sd(shaps)), by = list(feature)]
+}

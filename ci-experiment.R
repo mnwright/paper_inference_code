@@ -94,6 +94,14 @@ pdps = reduceResults(fun = combine_pdps, init = list())
 pdps = rbindlist(pdps)
 pdps = ijoin(pars, pdps, by = "job.id")
 saveRDS(pdps, sprintf("%s/pdps-experiments.Rds", res_dir))
+gc()
+
+combine_shaps = function(a, b) {append(a, b["shap"])}
+shaps = reduceResults(fun = combine_shaps, init = list())
+shaps = rbindlist(shaps)
+shaps = ijoin(pars, shaps, by = "job.id")
+saveRDS(shaps, sprintf("%s/shaps-experiments.Rds", res_dir))
+gc()
 
 # =============================================================================
 # Compute true importance and PDP
@@ -101,9 +109,11 @@ saveRDS(pdps, sprintf("%s/pdps-experiments.Rds", res_dir))
 
 tpfis = list()
 tpdps = list()
+tshaps = list()
 
 tpfi_file = sprintf("%s/tpfis.Rds", res_dir)
 tpdp_file = sprintf("%s/tpdps.Rds", res_dir)
+tshap_file = sprintf("%s/tshaps.Rds", res_dir)
 
 if (!file.exists(tpfi_file)){
   mod_names = c("lm", "rpart", "randomForest")
@@ -114,11 +124,13 @@ if (!file.exists(tpfi_file)){
         message(i, j, ntrain)
         tpfi = get_true_pfi(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
         tpdp = get_true_pdp(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
-        tpfi$algorithm = tpdp$algorithm = i
-        tpfi$problem = tpdp$problem = j
-        tpfi$n = tpdp$n = ntrain
+        tshap = get_true_shap(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
+        tpfi$algorithm = tpdp$algorithm = tshap$algorithm = i
+        tpfi$problem = tpdp$problem = tshap$problem = j
+        tpfi$n = tpdp$n = tshap$n = ntrain
         tpfis = append(tpfis, list(tpfi))
         tpdps = append(tpdps, list(tpdp))
+        tshaps = append(tshaps, list(tshap))
       }
     }
   }
@@ -126,13 +138,17 @@ if (!file.exists(tpfi_file)){
   saveRDS(tpfis, file = tpfi_file)
   tpdps = rbindlist(tpdps)
   saveRDS(tpdps, file = tpdp_file)
+  tshaps = rbindlist(tshaps)
+  saveRDS(tshaps, file = tshap_file)
 } else {
   tpfis = readRDS(tpfi_file)
   tpdps = readRDS(tpdp_file)
+  tshaps = readRDS(tshap_file)
 }
 
 cis_pfi = merge(pfis, tpfis, by = c("feature", "algorithm", "problem", "n"))
 cis_pdp = merge(pdps, tpdps, by = c("feature", "algorithm", "problem", "feature_value", "n"))
+cis_shap = merge(shaps, tshaps, by = c("feature", "algorithm", "problem", "n"))
 
 # =============================================================================
 # Compute coverage for PFI
@@ -167,4 +183,18 @@ coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
 print(coverage_pdp_mean)
 
+# =============================================================================
+# Compute coverage for SHAP
+# =============================================================================
+cis_shap = cis_shap[, in_ci := (lower <= tshap) & (tshap <= upper)]
+coverage_shap = cis_shap[,.(coverage = mean(in_ci),
+                          coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
+                          avg_width = mean(upper - lower)),
+                       by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
+                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
 
+coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
+                                 by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                           adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+print(coverage_shap_mean)
+saveRDS(coverage_shap_mean, file = sprintf("%s/coverage_shap_mean.Rds", res_dir))

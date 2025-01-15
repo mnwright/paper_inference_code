@@ -24,4 +24,5 @@ Depends:
     patchwork,
     randomForest,
     missMethods, 
-    missRanger
+    missRanger, 
+    shapr
