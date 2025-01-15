@@ -104,6 +104,13 @@ shaps = ijoin(pars, shaps, by = "job.id")
 saveRDS(shaps, sprintf("%s/shaps-experiments.Rds", res_dir))
 gc()
 
+combine_perf = function(a, b) {append(a, b["perf"])}
+perfs = reduceResults(fun = combine_perf, init = list())
+perfs = rbindlist(perfs)
+perfs = ijoin(pars, perfs, by = "job.id")
+saveRDS(perfs, sprintf("%s/perfs-experiments.Rds", res_dir))
+gc()
+
 # =============================================================================
 # Compute true importance and PDP
 # =============================================================================
@@ -157,11 +164,12 @@ cis_shap = merge(shaps, tshaps, by = c("feature", "algorithm", "problem", "n"))
 cis_pfi = cis_pfi[, in_ci := (lower <= tpfi) & (tpfi <= upper)]
 coverage_pfi = cis_pfi[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
-                  avg_width = mean(upper - lower)),
+                  avg_width = mean(upper - lower), 
+                  bias = tpfi - pfi),
                by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
                          adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
 
-coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
+coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                      by = list(algorithm, problem, sampling_strategy, nrefits, 
                                                adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_pfi_mean)
@@ -174,11 +182,12 @@ saveRDS(coverage_pfi_mean, file = sprintf("%s/coverage_pfi_mean.Rds", res_dir))
 cis_pdp = cis_pdp[, in_ci := (lower <= tpdp) & (tpdp <= upper)]
 coverage_pdp = cis_pdp[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
-                  avg_width = mean(upper - lower)),
+                  avg_width = mean(upper - lower), 
+                  bias = tpdp - pdp),
                by = list(feature, feature_value, algorithm, problem, sampling_strategy, max_refits, nrefits, 
                          adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
 
-coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
+coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
                                            adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
@@ -190,12 +199,15 @@ print(coverage_pdp_mean)
 cis_shap = cis_shap[, in_ci := (lower <= tshap) & (tshap <= upper)]
 coverage_shap = cis_shap[,.(coverage = mean(in_ci),
                           coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
-                          avg_width = mean(upper - lower)),
+                          avg_width = mean(upper - lower), 
+                          bias = tshap - shap),
                        by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
                                  adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
 
-coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se)),
+coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
                                            adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_shap_mean)
 saveRDS(coverage_shap_mean, file = sprintf("%s/coverage_shap_mean.Rds", res_dir))
+
+

@@ -108,19 +108,21 @@ get_model_wrapper = function(model){
       pattern = job$prob.pars$pattern
       missing_prob = job$prob.pars$missing_prob
       if (pattern == "MCAR") {
-        miss_fun <- function(data) missMethods::delete_MCAR(data, p = missing_prob)
+        miss_fun <- function(data) {
+          missMethods::delete_MCAR(data, p = missing_prob, cols_mis = setdiff(colnames(data), "y"))
+        }
       } else if (pattern == "MAR") {
         miss_fun <- function(data) {
           # Random half (rounded down) of columns are missing, the other half are used as control variables
-          cols_mis <- sample(1:ncol(data), floor(ncol(data)/2))
-          cols_ctrl <- sample(setdiff(1:ncol(data), cols_mis), floor(ncol(data)/2))
+          fnames = setdiff(colnames(data), "y")
+          cols_mis <- sample(fnames, floor(length(fnames)/2))
+          cols_ctrl <- sample(setdiff(fnames, cols_mis), floor(length(fnames)/2))
           missMethods::delete_MAR_rank(data, p = missing_prob, 
                                        cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
         }
       } else if (pattern == "MNAR") {
         miss_fun <- function(data) {
-          cols_mis <- 1:ncol(data)
-          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = cols_mis)
+          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = setdiff(colnames(data), "y"))
         } 
       } else {
         stop("Unknown missing data pattern")
@@ -224,11 +226,35 @@ get_model_wrapper = function(model){
         shaps
       }))
       
-      list("pfis" = pfis, "pdps" = pdps, shaps = shaps)
+      # Prediction performance
+      perf = rbindlist(lapply(1:imps, function(i) {
+        if (length(train_dat) > 1) {
+          fh = function(x) predict(mods[[i]], newdata = x)
+          fit = mods[[i]]
+          trdat = train_dat[[i]] 
+        } else {
+          fh = function(x) predict(mods[[1]], newdata = x)
+          fit = mods[[1]]
+          trdat = train_dat[[1]] 
+        }
+        if (length(test_dat) > 1) {
+          tedat = test_dat[[i]]
+        } else {
+          tedat = test_dat[[1]]
+        }
+        
+        perf = data.table(mse = mean((fh(tedat) - tedat$y)^2))
+        perf$refit_id = m
+        perf$imp_id = i
+        perf
+      }))
+      
+      list("pfis" = pfis, "pdps" = pdps, "shaps" = shaps, "perf" = perf)
     })
     pfis = rbindlist(lapply(results, function(x) x[["pfis"]]))
     pdps = rbindlist(lapply(results, function(x) x[["pdps"]]))
     shaps = rbindlist(lapply(results, function(x) x[["shaps"]]))
+    perf = rbindlist(lapply(results, function(x) x[["perf"]]))
 
     # Loop over refit_id to simulate different number of models
     res_pfi = rbindlist(lapply(2:max(pfis$refit_id), function(i) {
@@ -272,8 +298,8 @@ get_model_wrapper = function(model){
       res
     }))
 
-    res_shap$job.id = res_pdp$job.id = res_pfi$job.id = job$id
-    list("pdp" = res_pdp, "pfi" = res_pfi, "shap" = res_shap)
+    res_shap$job.id = res_pdp$job.id = res_pfi$job.id = perf$job.id = job$id
+    list("pdp" = res_pdp, "pfi" = res_pfi, "shap" = res_shap, "perf" = perf)
   }
 }
 
