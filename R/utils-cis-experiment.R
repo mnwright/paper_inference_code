@@ -118,7 +118,10 @@ get_model_wrapper = function(model){
                                        cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
         }
       } else if (pattern == "MNAR") {
-        miss_fun <- function(data) missMethods::delete_MNAR_rank(data, p = missing_prob)
+        miss_fun <- function(data) {
+          cols_mis <- 1:ncol(data)
+          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = cols_mis)
+        } 
       } else {
         stop("Unknown missing data pattern")
       }

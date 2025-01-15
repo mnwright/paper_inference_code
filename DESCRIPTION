@@ -23,4 +23,5 @@ Depends:
     kableExtra,
     patchwork,
     randomForest,
-    missMethods
+    missMethods, 
+    missRanger
