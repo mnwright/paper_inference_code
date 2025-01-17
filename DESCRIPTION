@@ -17,7 +17,7 @@ Depends:
     here,
     paradox,
     parallel,
-    rpart,
+    xgboost,
     lmerTest,
     tidyr,
     kableExtra,
@@ -25,4 +25,4 @@ Depends:
     randomForest,
     missMethods, 
     missRanger, 
-    shapr
+    fastshap

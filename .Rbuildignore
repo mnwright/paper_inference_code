@@ -1,0 +1,5 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^iml.relating\.Rcheck$
+^iml.relating.*\.tar\.gz$
+^iml.relating.*\.tgz$

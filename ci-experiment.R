@@ -6,7 +6,7 @@
 # =============================================================================
 # Experiment Settings
 # =============================================================================
-N_EXPERIMENTS = 100 #10000
+N_EXPERIMENTS = 1000
 N_TRAIN = 1000
 #N_SAMPLE = 100
 MAX_REFITS = 30
@@ -27,7 +27,8 @@ unlink("registry", recursive = TRUE)
 if(file.exists("registry")) {
   reg = loadRegistry("registry", writeable = TRUE)
 } else {
-  reg = makeExperimentRegistry(file.dir = "registry", source = "source.R")
+  reg = makeExperimentRegistry(file.dir = "registry", source = "source.R", 
+                               seed = 42)
 }
 #clearRegistry(reg)
 
@@ -37,8 +38,10 @@ addProblem(name = "x1234", data = data.frame(), fun = gdata, seed = 1)
 
 # see file R/ci-experiment.R
 addAlgorithm(name = "lm",  lm_wrapper)
-addAlgorithm(name = "rpart",  rpart_wrapper)
+#addAlgorithm(name = "rpart",  rpart_wrapper)
 addAlgorithm(name = "randomForest",  rf_wrapper)
+addAlgorithm(name = "xgboost",  xg_wrapper)
+
 
 strgs = c("bootstrap", "ideal") #c("subsampling", "bootstrap", "ideal")
 missing_probs <- c(0.1, 0.2, 0.4) # Proportion of missing data
@@ -69,14 +72,14 @@ pdes = list(x12 = setting, x1234 = setting)
 addExperiments(pdes, repls = N_EXPERIMENTS)
 summarizeExperiments()
 
-
 # =============================================================================
 # Run Experiment
 # =============================================================================
 
 #testJob(1)
-reg$cluster.functions = makeClusterFunctionsMulticore(ncpus = NC, fs.latency = 0)
-submitJobs()
+ids = findNotSubmitted()
+ids[, chunk := chunk(job.id, chunk.size = 1)]
+submitJobs(ids)
 waitForJobs()
 
 pars = unwrap(getJobPars())
@@ -97,7 +100,7 @@ pdps = ijoin(pars, pdps, by = "job.id")
 saveRDS(pdps, sprintf("%s/pdps-experiments.Rds", res_dir))
 gc()
 
-combine_shaps = function(a, b) {append(a, b["shap"])}
+combine_shaps = function(a, b) {if (is.data.table(b["shap"]$shap)) append(a, b["shap"]) else a}
 shaps = reduceResults(fun = combine_shaps, init = list())
 shaps = rbindlist(shaps)
 shaps = ijoin(pars, shaps, by = "job.id")
@@ -124,21 +127,30 @@ tpdp_file = sprintf("%s/tpdps.Rds", res_dir)
 tshap_file = sprintf("%s/tshaps.Rds", res_dir)
 
 if (!file.exists(tpfi_file)){
-  mod_names = c("lm", "rpart", "randomForest")
+  #mod_names = c("lm", "rpart", "randomForest")
+  mod_names = c("lm", "randomForest", "xgboost")
   dgp_names = c("x12", "x1234")
   for(i in mod_names) {
     for (j in dgp_names) {
       for (ntrain in N_TRAIN) {
         message(i, j, ntrain)
+        message("pfi")
         tpfi = get_true_pfi(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
+        message("pdp")
         tpdp = get_true_pdp(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
-        tshap = get_true_shap(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
-        tpfi$algorithm = tpdp$algorithm = tshap$algorithm = i
-        tpfi$problem = tpdp$problem = tshap$problem = j
-        tpfi$n = tpdp$n = tshap$n = ntrain
+        tpfi$algorithm = tpdp$algorithm = i
+        tpfi$problem = tpdp$problem = j
+        tpfi$n = tpdp$n = ntrain
         tpfis = append(tpfis, list(tpfi))
         tpdps = append(tpdps, list(tpdp))
-        tshaps = append(tshaps, list(tshap))
+        if (i %in% c("lm", "xgboost")) {
+          message("shap")
+          tshap = get_true_shap(N_TRUE, ntrain = ntrain, dgps[[j]], mods[[i]])
+          tshap$algorithm = i
+          tshap$problem = j
+          tshap$n = ntrain
+          tshaps = append(tshaps, list(tshap))
+        }
       }
     }
   }
@@ -167,7 +179,7 @@ coverage_pfi = cis_pfi[,.(coverage = mean(in_ci),
                   avg_width = mean(upper - lower), 
                   bias = tpfi - pfi),
                by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
-                         adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                         adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                      by = list(algorithm, problem, sampling_strategy, nrefits, 
@@ -183,9 +195,9 @@ cis_pdp = cis_pdp[, in_ci := (lower <= tpdp) & (tpdp <= upper)]
 coverage_pdp = cis_pdp[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                   avg_width = mean(upper - lower), 
-                  bias = tpdp - pdp),
+                  bias = tpdp - mpdp),
                by = list(feature, feature_value, algorithm, problem, sampling_strategy, max_refits, nrefits, 
-                         adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                         adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
@@ -202,7 +214,7 @@ coverage_shap = cis_shap[,.(coverage = mean(in_ci),
                           avg_width = mean(upper - lower), 
                           bias = tshap - shap),
                        by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
-                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method, m)]
+                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
                                  by = list(algorithm, problem, sampling_strategy, nrefits, 
