@@ -22,7 +22,7 @@ devtools::load_all()
 set.seed(1)
 
 # Clean up
-unlink("registry", recursive = TRUE)
+#unlink("registry", recursive = TRUE)
 
 if(file.exists("registry")) {
   reg = loadRegistry("registry", writeable = TRUE)
