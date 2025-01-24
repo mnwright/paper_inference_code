@@ -9,7 +9,7 @@
 N_EXPERIMENTS = 1000
 N_TRAIN = 1000
 #N_SAMPLE = 100
-MAX_REFITS = 30
+MAX_REFITS = 20#30
 # Number of permutations for PFI computation
 N_PERM = 5
 # Number of refits to estimate true PFI/PDP
@@ -21,13 +21,15 @@ NC = 20
 devtools::load_all()
 set.seed(1)
 
-# Clean up
-#unlink("registry", recursive = TRUE)
+reg_name <- "registry1"
 
-if(file.exists("registry")) {
-  reg = loadRegistry("registry", writeable = TRUE)
+# Clean up
+#unlink(reg_name, recursive = TRUE)
+
+if(file.exists(reg_name)) {
+  reg = loadRegistry(reg_name, writeable = TRUE)
 } else {
-  reg = makeExperimentRegistry(file.dir = "registry", source = "source.R", 
+  reg = makeExperimentRegistry(file.dir = reg_name, source = "source.R", 
                                seed = 42)
 }
 #clearRegistry(reg)
@@ -39,7 +41,7 @@ addProblem(name = "x1234", data = data.frame(), fun = gdata, seed = 1)
 # see file R/ci-experiment.R
 addAlgorithm(name = "lm",  lm_wrapper)
 #addAlgorithm(name = "rpart",  rpart_wrapper)
-addAlgorithm(name = "randomForest",  rf_wrapper)
+#addAlgorithm(name = "randomForest",  rf_wrapper)
 addAlgorithm(name = "xgboost",  xg_wrapper)
 
 
@@ -77,8 +79,9 @@ summarizeExperiments()
 # =============================================================================
 
 #testJob(1)
-ids = findNotSubmitted()
+ids = findExperiments(repls = 1:3)
 ids[, chunk := chunk(job.id, chunk.size = 1)]
+ids = ids[order(chunk), ]
 submitJobs(ids)
 waitForJobs()
 

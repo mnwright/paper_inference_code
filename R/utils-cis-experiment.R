@@ -149,15 +149,28 @@ get_model_wrapper = function(model){
       # Impute missing data
       imputation_method = job$prob.pars$imputation_method
       if (imputation_method == "mean") {
-        impute_fun <- function(data) list(missMethods::impute_mean(data))
+        impute_fun <- function(data, withy = TRUE) list(missMethods::impute_mean(data))
       } else if (imputation_method == "mice") {
-        impute_fun <- function(data) {
-          imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE)
+        impute_fun <- function(data, withy = TRUE) {
+          if (withy) {
+            imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE)
+          } else {
+            fnames <- setdiff(colnames(data), "y")
+            imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE, 
+                              predictorMatrix = make.predictorMatrix(data[, fnames]))
+          }
           complete(imp, "all")
         }
       } else if (imputation_method == "missForest") {
-        impute_fun <- function(data) list(missRanger(data, verbose = 0, 
-                                                     num.trees = 100, num.threads = 1))
+        impute_fun <- function(data, withy = TRUE) {
+          if (withy) {
+            list(missRanger(data, verbose = 0, 
+                            num.trees = 100, num.threads = 1))
+          } else {
+            list(missRanger(data, verbose = 0, formula = .~.-y,
+                            num.trees = 100, num.threads = 1))
+          }
+        } 
       } else {
         stop("Unknown imputation method")
       }
@@ -166,13 +179,13 @@ get_model_wrapper = function(model){
       test_missing = job$prob.pars$test_missing
       if (train_missing) {
         train_dat <- miss_fun(train_dat)
-        train_dat <- impute_fun(train_dat)
+        train_dat <- impute_fun(train_dat, withy = TRUE)
       } else {
         train_dat <- list(train_dat)
       }
       if (test_missing) {
         test_dat <- miss_fun(test_dat)
-        test_dat <- impute_fun(test_dat)
+        test_dat <- impute_fun(test_dat, withy = FALSE)
       } else {
         test_dat <- list(test_dat)
       }
