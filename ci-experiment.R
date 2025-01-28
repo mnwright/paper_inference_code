@@ -24,7 +24,7 @@ set.seed(1)
 reg_name <- "registry1"
 
 # Clean up
-#unlink(reg_name, recursive = TRUE)
+unlink(reg_name, recursive = TRUE)
 
 if(file.exists(reg_name)) {
   reg = loadRegistry(reg_name, writeable = TRUE)
@@ -49,7 +49,7 @@ strgs = c("bootstrap", "ideal") #c("subsampling", "bootstrap", "ideal")
 missing_probs <- c(0.1, 0.2, 0.4) # Proportion of missing data
 patterns <- c("MCAR", "MAR", "MNAR") # Missing data patterns
 train_missing <- c(TRUE, FALSE) # Missing data in training data
-test_missing <- c(TRUE, FALSE) # Missing data in test data
+test_missing <- FALSE #c(TRUE, FALSE) # Missing data in test data
 imputation_methods <- c("mean", "missForest", "mice")
 setting = expand.grid(n = N_TRAIN,
                       max_refits = MAX_REFITS,
@@ -64,7 +64,7 @@ setting = expand.grid(n = N_TRAIN,
 setting <- data.table(setting)
 
 # Only consider missings in both training and test (or none at all)
-setting <- setting[(!train_missing & !test_missing) | (train_missing & test_missing), ]
+#setting <- setting[(!train_missing & !test_missing) | (train_missing & test_missing), ]
 
 # Remove duplicated experiments (no missing data)
 setting <- setting[!(!train_missing & !test_missing & (missing_prob != 0.1 | pattern != "MCAR" | imputation_method != "mean")), ]
@@ -79,7 +79,7 @@ summarizeExperiments()
 # =============================================================================
 
 #testJob(1)
-ids = findExperiments(repls = 1:3)
+ids = findExperiments(repls = 1:100) # 101:1000
 ids[, chunk := chunk(job.id, chunk.size = 1)]
 ids = ids[order(chunk), ]
 submitJobs(ids)
@@ -180,12 +180,13 @@ cis_pfi = cis_pfi[, in_ci := (lower <= tpfi) & (tpfi <= upper)]
 coverage_pfi = cis_pfi[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                   avg_width = mean(upper - lower), 
-                  bias = tpfi - pfi),
+                  bias = mean(tpfi - pfi), 
+                  pfi = mean(pfi)),
                by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
                          adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_pfi_mean = coverage_pfi[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
-                                     by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                     by = list(feature, algorithm, problem, sampling_strategy, nrefits, 
                                                adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_pfi_mean)
 saveRDS(coverage_pfi_mean, file = sprintf("%s/coverage_pfi_mean.Rds", res_dir))
@@ -198,12 +199,12 @@ cis_pdp = cis_pdp[, in_ci := (lower <= tpdp) & (tpdp <= upper)]
 coverage_pdp = cis_pdp[,.(coverage = mean(in_ci),
                   coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                   avg_width = mean(upper - lower), 
-                  bias = tpdp - mpdp),
+                  bias = mean(tpdp - mpdp)),
                by = list(feature, feature_value, algorithm, problem, sampling_strategy, max_refits, nrefits, 
                          adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_pdp_mean = coverage_pdp[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
-                                 by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                 by = list(feature, algorithm, problem, sampling_strategy, nrefits, 
                                            adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 saveRDS(coverage_pdp_mean, sprintf("%s/coverage_pdp_mean.Rds", res_dir))
 print(coverage_pdp_mean)
@@ -215,12 +216,12 @@ cis_shap = cis_shap[, in_ci := (lower <= tshap) & (tshap <= upper)]
 coverage_shap = cis_shap[,.(coverage = mean(in_ci),
                           coverage_se = (1/N_EXPERIMENTS) * sd(in_ci),
                           avg_width = mean(upper - lower), 
-                          bias = tshap - shap),
+                          bias = mean(tshap - shap)),
                        by = list(feature, algorithm, problem, max_refits, n_perm, sampling_strategy, nrefits, 
                                  adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 
 coverage_shap_mean = coverage_shap[, .(coverage = mean(coverage), avg_width = mean(avg_width), coverage_se = mean(coverage_se), bias = mean(bias)),
-                                 by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                 by = list(feature, algorithm, problem, sampling_strategy, nrefits, 
                                            adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)]
 print(coverage_shap_mean)
 saveRDS(coverage_shap_mean, file = sprintf("%s/coverage_shap_mean.Rds", res_dir))

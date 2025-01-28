@@ -39,17 +39,17 @@ coverage_shap_mean[, missing := factor(missing)]
 
 plot_fun <- function(iml_method, learner) {
   if (iml_method == "PFI") {
-    coverage_mean = coverage_pfi_mean[nrefits == 30 & algorithm == learner, ]
+    coverage_mean = coverage_pfi_mean[nrefits == 20 & algorithm == learner, ]
   } else if (iml_method == "PDP") {
-    coverage_mean = coverage_pdp_mean[nrefits == 30 & algorithm == learner, ]
+    coverage_mean = coverage_pdp_mean[nrefits == 20 & algorithm == learner, ]
   } else if (iml_method == "SHAP") {
-    coverage_mean = coverage_shap_mean[nrefits == 30 & algorithm == learner, ]
+    coverage_mean = coverage_shap_mean[nrefits == 20 & algorithm == learner, ]
   } else {
     stop("Unknown iml method")
   }
   
   pars <- expand.grid(n = unique(coverage_mean$n), 
-                      sampling_strategy = c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
+                      sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
                       missing = setdiff(unique(coverage_mean$missing), "None"), 
                       pattern = setdiff(as.character(unique(coverage_mean$pattern)), "None"), 
                       #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 
@@ -61,7 +61,8 @@ plot_fun <- function(iml_method, learner) {
                            #  missing_prob %in% c(0, xmissing_prob) & 
                            sampling_strategy == xsampling_strategy, 
     ],
-    aes(x = missing_prob, y = bias, color = imputation_method)) +
+    aes(x = missing_prob, y = bias, color = imputation_method, 
+        linetype = feature)) +
       facet_wrap(~ problem) + 
       geom_line() + 
       #geom_boxplot() + 
@@ -76,9 +77,9 @@ plot_fun <- function(iml_method, learner) {
 }
 
 iml_methods <- c("PFI", "PDP", "SHAP")
-learners <- c("lm", "randomForest", "xgboost")
+learners <- c("lm", "xgboost")
 pars <- data.table(expand.grid(iml_method = iml_methods, learner = learners, stringsAsFactors = FALSE))
-pars <- pars[!(iml_method == "SHAP" & learner == "randomForest"), ]
+#pars <- pars[!(iml_method == "SHAP" & learner == "randomForest"), ]
 mapply(function(iml_method, learner) {
   p <- plot_fun(iml_method, learner)
   ggsave(sprintf("%s/bias_%s_%s.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 

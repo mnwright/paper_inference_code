@@ -126,21 +126,20 @@ get_model_wrapper = function(model){
       pattern = job$prob.pars$pattern
       missing_prob = job$prob.pars$missing_prob
       if (pattern == "MCAR") {
-        miss_fun <- function(data) {
-          missMethods::delete_MCAR(data, p = missing_prob, cols_mis = setdiff(colnames(data), "y"))
+        miss_fun <- function(data, cols_mis) {
+          missMethods::delete_MCAR(data, p = missing_prob, cols_mis = cols_mis)
         }
       } else if (pattern == "MAR") {
-        miss_fun <- function(data) {
-          # Random half (rounded down) of columns are missing, the other half are used as control variables
+        miss_fun <- function(data, cols_mis) {
+          # the other half are used as control variables
           fnames = setdiff(colnames(data), "y")
-          cols_mis <- sample(fnames, floor(length(fnames)/2))
           cols_ctrl <- sample(setdiff(fnames, cols_mis), floor(length(fnames)/2))
           missMethods::delete_MAR_rank(data, p = missing_prob, 
                                        cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
         }
       } else if (pattern == "MNAR") {
-        miss_fun <- function(data) {
-          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = setdiff(colnames(data), "y"))
+        miss_fun <- function(data, cols_mis) {
+          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = cols_mis)
         } 
       } else {
         stop("Unknown missing data pattern")
@@ -149,43 +148,39 @@ get_model_wrapper = function(model){
       # Impute missing data
       imputation_method = job$prob.pars$imputation_method
       if (imputation_method == "mean") {
-        impute_fun <- function(data, withy = TRUE) list(missMethods::impute_mean(data))
+        impute_fun <- function(data) {
+          list(missMethods::impute_mean(data))
+        } 
       } else if (imputation_method == "mice") {
-        impute_fun <- function(data, withy = TRUE) {
-          if (withy) {
-            imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE)
-          } else {
-            fnames <- setdiff(colnames(data), "y")
-            imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100, print = FALSE, 
-                              predictorMatrix = make.predictorMatrix(data[, fnames]))
-          }
+        impute_fun <- function(data) {
+          imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100,
+                            print = FALSE)
           complete(imp, "all")
         }
       } else if (imputation_method == "missForest") {
-        impute_fun <- function(data, withy = TRUE) {
-          if (withy) {
-            list(missRanger(data, verbose = 0, 
-                            num.trees = 100, num.threads = 1))
-          } else {
-            list(missRanger(data, verbose = 0, formula = .~.-y,
-                            num.trees = 100, num.threads = 1))
-          }
+        impute_fun <- function(data) {
+          imp <- missRanger(train_dat, verbose = 0, 
+                            num.trees = 100, num.threads = 1)
+          list(imp)
         } 
       } else {
         stop("Unknown imputation method")
       }
       
+      # Missing data
       train_missing = job$prob.pars$train_missing
       test_missing = job$prob.pars$test_missing
+      fnames = setdiff(colnames(train_dat), "y")
+      cols_mis = sample(fnames, floor(length(fnames)/2))
       if (train_missing) {
-        train_dat <- miss_fun(train_dat)
-        train_dat <- impute_fun(train_dat, withy = TRUE)
+        train_dat <- miss_fun(train_dat, cols_mis)
+        train_dat <- impute_fun(train_dat)
       } else {
         train_dat <- list(train_dat)
       }
       if (test_missing) {
-        test_dat <- miss_fun(test_dat)
-        test_dat <- impute_fun(test_dat, withy = FALSE)
+        test_dat <- miss_fun(test_dat, cols_mis)
+        test_dat <- impute_fun(test_dat)
       } else {
         test_dat <- list(test_dat)
       }
@@ -597,10 +592,6 @@ get_true_pdp = function(ntrue, ntrain, gen_data, train_mod){
 #' @return data.frame with SHAP values
 compute_shaps = function(test_dat, train_dat, fh, fit){
   fnames = setdiff(colnames(test_dat), "y")
-  # explanation  <- shapr::explain(fit, test_dat[, fnames], train_dat[, fnames], 
-  #                                approach = "empirical", phi0 = mean(train_dat$y), 
-  #                                predict_model = stats::predict, verbose = NULL)
-  # shaps <- colMeans(abs(explanation$shapley_values_est[, ..fnames]))
   if (inherits(fit, "xgb.Booster")) {
     explanation <- fastshap::explain(fit, X = as.matrix(train_dat[, fnames]), 
                                     newdata = as.matrix(test_dat[, fnames]), 
@@ -612,9 +603,6 @@ compute_shaps = function(test_dat, train_dat, fh, fit){
   }
   shaps <- colMeans(abs(explanation[, fnames]))
   data.table(shap = shaps, feature = names(shaps))
-  #browser()
-  #melt(explanation$shapley_values_est[, ..fnames], measure.vars = fnames, 
-  #     variable.name = "feature", value.name = "shap")
 }
 
 #' Compute confidence intervals for SHAP

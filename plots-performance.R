@@ -20,14 +20,9 @@ perf[, missing := factor(missing)]
 perf_mean <- perf[, .(mse = mean(mse)), by = .(n, problem, algorithm, sampling_strategy, missing,
                                                missing_prob, pattern, imputation_method)]
 
-ggplot(perf_mean, aes(x = missing_prob, y = mse, color = imputation_method)) +
-  facet_grid(problem ~ algorithm) + 
-  geom_point() +
-  geom_line() 
-
 
 pars <- expand.grid(n = unique(perf_mean$n), 
-                    sampling_strategy = c("ideal", "bootstrap"), #as.character(unique(perf_mean$sampling_strategy)), 
+                    sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(perf_mean$sampling_strategy)), 
                     missing = setdiff(unique(perf_mean$missing), "None"), 
                     pattern = setdiff(as.character(unique(perf_mean$pattern)), "None"), 
                     #   missing_prob = setdiff(unique(perf_mean$missing_prob), 0), 
@@ -51,5 +46,5 @@ plots <- mapply(function(xn, xmissing, xpattern, xsampling_strategy) {
                     xn, xsampling_strategy, xmissing, xpattern))
 }, pars$n, pars$missing, pars$pattern, pars$sampling_strategy, SIMPLIFY = FALSE)
 
-ggsave(sprintf("%s/performance.pdf", fig_dir), wrap_plots(plots, ncol = 2), width = 20, height = 20, 
+ggsave(sprintf("%s/performance.pdf", fig_dir), wrap_plots(plots, ncol = 2), width = 20, height = 40, 
        limitsize = FALSE)
