@@ -37,6 +37,19 @@ coverage_shap_mean[train_missing & !test_missing, missing := "Train"]
 coverage_shap_mean[!train_missing & test_missing, missing := "Test"]
 coverage_shap_mean[, missing := factor(missing)]
 
+coverage_pfi_mean <- coverage_pfi_mean[, coverage := mean(coverage), 
+                                       by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)
+                                       ]
+coverage_pdp_mean <- coverage_pdp_mean[, coverage := mean(coverage), 
+                                       by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)
+]
+coverage_shap_mean <- coverage_shap_mean[, coverage := mean(coverage), 
+                                       by = list(algorithm, problem, sampling_strategy, nrefits, 
+                                                 adjusted, n, missing_prob, pattern, train_missing, test_missing, imputation_method)
+]
+
 plot_fun <- function(iml_method, learner) {
   if (iml_method == "PFI") {
     coverage_mean = coverage_pfi_mean[algorithm == learner, ]
@@ -49,20 +62,20 @@ plot_fun <- function(iml_method, learner) {
   }
   
   pars <- expand.grid(n = unique(coverage_mean$n), 
-                      sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
+                      sampling_strategy = c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
                       missing = setdiff(unique(coverage_mean$missing), "None"), 
                       pattern = setdiff(as.character(unique(coverage_mean$pattern)), "None"), 
-                   #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 
+                      #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 
                       stringsAsFactors = FALSE)
   mapply(function(xn, xmissing, xpattern, xsampling_strategy) {
     ggplot(coverage_mean[n == xn & 
-                               missing %in% c("None", xmissing) & 
-                               pattern %in% c("None", xpattern) & 
-                             #  missing_prob %in% c(0, xmissing_prob) & 
-                               sampling_strategy == xsampling_strategy, 
+                           missing %in% c("None", xmissing) & 
+                           pattern %in% c("None", xpattern) & 
+                           #  missing_prob %in% c(0, xmissing_prob) & 
+                           sampling_strategy == xsampling_strategy, 
     ],
     aes(x = nrefits, y = coverage, color = imputation_method, 
-        shape = adjusted, linetype = feature)) +
+        shape = adjusted, linetype = adjusted)) +
       facet_grid(problem ~ missing_prob) + 
       geom_line() + #geom_point() +
       scale_y_continuous(sprintf("Confidence Interval %s", "Coverage"), limits = c(0, 1)) +
