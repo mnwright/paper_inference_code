@@ -48,12 +48,8 @@ plot_fun <- function(iml_method, learner) {
     stop("Unknown iml method")
   }
   
-  coverage_mean <- coverage_mean[, .(bias = mean(bias)), 
-                                 by = .(n, problem, sampling_strategy, missing,
-                                        missing_prob, pattern, imputation_method)]
-  
   pars <- expand.grid(n = unique(coverage_mean$n), 
-                      sampling_strategy = c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
+                      sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
                       missing = setdiff(unique(coverage_mean$missing), "None"), 
                       pattern = setdiff(as.character(unique(coverage_mean$pattern)), "None"), 
                       #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 
@@ -65,7 +61,7 @@ plot_fun <- function(iml_method, learner) {
                            #  missing_prob %in% c(0, xmissing_prob) & 
                            sampling_strategy == xsampling_strategy, 
     ],
-    aes(x = missing_prob, y = bias, color = imputation_method)) +
+    aes(x = missing_prob, y = bias, color = imputation_method, linetype = feature)) +
       facet_wrap(~ problem) + 
       geom_line() + 
       #geom_boxplot() + 
@@ -85,7 +81,7 @@ pars <- data.table(expand.grid(iml_method = iml_methods, learner = learners, str
 #pars <- pars[!(iml_method == "SHAP" & learner == "randomForest"), ]
 mapply(function(iml_method, learner) {
   p <- plot_fun(iml_method, learner)
-  ggsave(sprintf("%s/bias_%s_%s.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 
+  ggsave(sprintf("%s/bias_%s_%s_features.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 
          limitsize = FALSE)
 }, pars$iml_method, pars$learner, SIMPLIFY = FALSE)
 

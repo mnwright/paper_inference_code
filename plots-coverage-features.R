@@ -49,7 +49,7 @@ plot_fun <- function(iml_method, learner) {
   }
   
   pars <- expand.grid(n = unique(coverage_mean$n), 
-                      sampling_strategy = c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
+                      sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(coverage_mean$sampling_strategy)), 
                       missing = setdiff(unique(coverage_mean$missing), "None"), 
                       pattern = setdiff(as.character(unique(coverage_mean$pattern)), "None"), 
                    #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 

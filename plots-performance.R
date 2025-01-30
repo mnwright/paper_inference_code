@@ -46,5 +46,5 @@ plots <- mapply(function(xn, xmissing, xpattern, xsampling_strategy) {
                     xn, xsampling_strategy, xmissing, xpattern))
 }, pars$n, pars$missing, pars$pattern, pars$sampling_strategy, SIMPLIFY = FALSE)
 
-ggsave(sprintf("%s/performance.pdf", fig_dir), wrap_plots(plots, ncol = 2), width = 20, height = 40, 
+ggsave(sprintf("%s/performance.pdf", fig_dir), wrap_plots(plots, ncol = 2), width = 20, height = 20, 
        limitsize = FALSE)

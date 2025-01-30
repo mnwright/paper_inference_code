@@ -15,12 +15,19 @@ SAMPLING_FRACTION = 0.632
 #' @param nsample Number of samples to generate
 #' @return data.frame
 generate_data1234 = function(nsample){
-  x1 = runif(nsample, min = 0, max = 1)
-  x2 = runif(nsample, min = 0, max = 1)
-  x3 = runif(nsample, min = 0, max = 1)
-  x4 = runif(nsample, min = 0, max = 1)
-  y = x1 - sqrt(1 + x2) + x3 * x4 + (x4/10)^2 + rnorm(nsample, sd = 1)
-  data.frame(x1, x2, x3, x4, y)
+  # x1 = runif(nsample, min = 0, max = 1)
+  # x2 = runif(nsample, min = 0, max = 1)
+  # x3 = runif(nsample, min = 0, max = 1)
+  # x4 = runif(nsample, min = 0, max = 1)
+  # y = x1 - sqrt(1 + x2) + x3 * x4 + (x4/10)^2 + rnorm(nsample, sd = 1)
+  # data.frame(x1, x2, x3, x4, y)
+  p = 4
+  sigma <- toeplitz(0.5^(0:(p-1)))
+  x = rmvnorm(nsample, mean = rep(0, 4), 
+              sigma = sigma)
+  #y = x[, 1] - sqrt(1 + abs(x[, 2])) + x[, 3] * x[, 4] + (x[, 4]/10)^2 + rnorm(nsample, sd = 1)
+  y = x[, 1] - sqrt(1 + abs(x[, 2])) + x[, 3] * x[, 4] + (x[, 4]/10)^2 + rnorm(nsample, sd = 1)
+  data.frame(x1 = x[, 1], x2 = x[, 2], x3 = x[, 3], x4 = x[, 4], y)
 }
 
 #' Wrapper for scenario x1234
@@ -40,10 +47,14 @@ gdata = function(data, job, n, ...){
 #' @param nsample Number of samples to generate
 #' @return data.frame
 generate_data12 = function(nsample){
-  x1 = runif(nsample, min = 0, max = 1)
-  x2 = runif(nsample, min = 0, max = 1)
-  y = x1 - x2 + rnorm(nsample, sd = 1)
-  data.frame(x1, x2, y)
+  # x1 = runif(nsample, min = 0, max = 1)
+  # x2 = runif(nsample, min = 0, max = 1)
+  # y = x1 - x2 + rnorm(nsample, sd = 1)
+  # data.frame(x1, x2, y)
+  x = rmvnorm(nsample, mean = c(0, 0), 
+              sigma = matrix(c(1, 0.5, 0.5, 1), nrow = 2))
+  y = x[, 1] - x[, 2] + rnorm(nsample, sd = 1)
+  data.frame(x1 = x[, 1], x2 = x[, 2], y)
 }
 
 #' Wrapper for scenario x12

@@ -48,7 +48,7 @@ plot_fun <- function(iml_method, learner) {
     stop("Unknown iml method")
   }
   
-  coverage_mean <- coverage_mean[, .(bias = mean(bias)), 
+  coverage_mean <- coverage_mean[, .(avg_width = mean(avg_width)), 
                                  by = .(n, problem, sampling_strategy, missing,
                                         missing_prob, pattern, imputation_method)]
   
@@ -65,15 +65,16 @@ plot_fun <- function(iml_method, learner) {
                            #  missing_prob %in% c(0, xmissing_prob) & 
                            sampling_strategy == xsampling_strategy, 
     ],
-    aes(x = missing_prob, y = bias, color = imputation_method)) +
+    aes(x = missing_prob, y = avg_width, color = imputation_method)) +
       facet_wrap(~ problem) + 
       geom_line() + 
+      geom_point() + 
       #geom_boxplot() + 
       #coord_flip() + 
       #scale_y_continuous(sprintf("Confidence Interval %s", "Coverage"), limits = c(0, 1)) +
       #scale_x_continuous("Number of Model Refits") +
       scale_color_discrete("Imputation Method") + 
-      geom_hline(yintercept = 0) + 
+      #geom_hline(yintercept = 0) + 
       ggtitle(sprintf("%s (learner = %s, n = %s, sampling = %s, missing = %s, pattern = %s)", 
                       iml_method, learner, xn, xsampling_strategy, xmissing, xpattern))
   }, pars$n, pars$missing, pars$pattern, pars$sampling_strategy, SIMPLIFY = FALSE)
@@ -85,7 +86,7 @@ pars <- data.table(expand.grid(iml_method = iml_methods, learner = learners, str
 #pars <- pars[!(iml_method == "SHAP" & learner == "randomForest"), ]
 mapply(function(iml_method, learner) {
   p <- plot_fun(iml_method, learner)
-  ggsave(sprintf("%s/bias_%s_%s.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 
+  ggsave(sprintf("%s/width_%s_%s.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 
          limitsize = FALSE)
 }, pars$iml_method, pars$learner, SIMPLIFY = FALSE)
 
