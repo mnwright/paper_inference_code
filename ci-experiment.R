@@ -21,7 +21,7 @@ NC = 20
 devtools::load_all()
 set.seed(1)
 
-reg_name <- "registry1"
+reg_name <- "registry2"
 
 # Clean up
 unlink(reg_name, recursive = TRUE)
@@ -45,12 +45,12 @@ addAlgorithm(name = "lm",  lm_wrapper)
 addAlgorithm(name = "xgboost",  xg_wrapper)
 
 
-strgs = c("bootstrap", "ideal") #c("subsampling", "bootstrap", "ideal")
+strgs = c("bootstrap", "subsampling") #c("subsampling", "bootstrap", "ideal")
 missing_probs <- c(0.1, 0.2, 0.4) # Proportion of missing data
 patterns <- c("MCAR", "MAR", "MNAR") # Missing data patterns
 train_missing <- c(TRUE, FALSE) # Missing data in training data
 test_missing <- FALSE #c(TRUE, FALSE) # Missing data in test data
-imputation_methods <- c("mean", "missForest", "mice")
+imputation_methods <- c("mean", "missForest", "mice", "mice_rf")
 setting = expand.grid(n = N_TRAIN,
                       max_refits = MAX_REFITS,
                       n_perm = N_PERM,

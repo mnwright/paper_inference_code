@@ -22,7 +22,7 @@ perf_mean <- perf[, .(mse = mean(mse)), by = .(n, problem, algorithm, sampling_s
 
 
 pars <- expand.grid(n = unique(perf_mean$n), 
-                    sampling_strategy = "ideal", #c("ideal", "bootstrap"), #as.character(unique(perf_mean$sampling_strategy)), 
+                    sampling_strategy = as.character(unique(perf_mean$sampling_strategy)), 
                     missing = setdiff(unique(perf_mean$missing), "None"), 
                     pattern = setdiff(as.character(unique(perf_mean$pattern)), "None"), 
                     #   missing_prob = setdiff(unique(perf_mean$missing_prob), 0), 

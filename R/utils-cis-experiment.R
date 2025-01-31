@@ -23,10 +23,12 @@ generate_data1234 = function(nsample){
   # data.frame(x1, x2, x3, x4, y)
   p = 4
   sigma <- toeplitz(0.5^(0:(p-1)))
+  # sigma = matrix(0.5, nrow = p, ncol = p)
+  # diag(sigma) = 1
   x = rmvnorm(nsample, mean = rep(0, 4), 
               sigma = sigma)
-  #y = x[, 1] - sqrt(1 + abs(x[, 2])) + x[, 3] * x[, 4] + (x[, 4]/10)^2 + rnorm(nsample, sd = 1)
   y = x[, 1] - sqrt(1 + abs(x[, 2])) + x[, 3] * x[, 4] + (x[, 4]/10)^2 + rnorm(nsample, sd = 1)
+  #y = x[, 1] - sqrt(1 + abs(x[, 2])) - sin(x[, 3]) + (x[, 4]/10)^2 + rnorm(nsample, sd = 1)
   data.frame(x1 = x[, 1], x2 = x[, 2], x3 = x[, 3], x4 = x[, 4], y)
 }
 
@@ -110,194 +112,114 @@ get_model_wrapper = function(model){
   model_wrapper = function(data, job, instance, ...){
     gen_data = dgps[[instance$name]]
     #dat = instance$dat
-    dat = gen_data(instance$n)
+    dat_all = gen_data(instance$n)
     nrefits = 1:job$prob.pars$max_refits
     samp_strategy = job$prob.pars$sampling_strategy
     gd = NA
-    results = lapply(nrefits, function(m){
-      if (samp_strategy == "subsampling"){
-        train_ids = sample(1:nrow(dat), size = SAMPLING_FRACTION * nrow(dat), replace = FALSE)
-        train_dat = dat[train_ids,]
-        test_dat = dat[setdiff(1:nrow(dat), train_ids), ]
-      } else if (samp_strategy == "bootstrap") {
-        # Size here is n and not n1. Due to replace = TRUE, n_unique(train_dat) =~ 0.632 * n
-        train_ids = sample(1:nrow(dat), size = nrow(dat), replace = TRUE)
-        train_dat = dat[train_ids,]
-        test_dat = dat[setdiff(1:nrow(dat), train_ids), ]
-      } else if (samp_strategy == "ideal"){
-        # Completely fresh data for both training and test
-        train_dat = gen_data(SAMPLING_FRACTION * nrow(dat))
-        test_dat  = gen_data(SAMPLING_FRACTION * nrow(dat))
-        #gd = gen_data
-      } else {
-        print(sprintf("Strategy %s not implemented", job$prob.pars$sampling_strategy))
+    
+    # Introduce missing data and impute
+    pattern = job$prob.pars$pattern
+    missing_prob = job$prob.pars$missing_prob
+    if (pattern == "MCAR") {
+      miss_fun <- function(data, cols_mis) {
+        missMethods::delete_MCAR(data, p = missing_prob, cols_mis = cols_mis)
       }
-      
-      # Introduce missing data and impute
-      pattern = job$prob.pars$pattern
-      missing_prob = job$prob.pars$missing_prob
-      if (pattern == "MCAR") {
-        miss_fun <- function(data, cols_mis) {
-          missMethods::delete_MCAR(data, p = missing_prob, cols_mis = cols_mis)
+    } else if (pattern == "MAR") {
+      miss_fun <- function(data, cols_mis) {
+        # the other half are used as control variables
+        fnames = setdiff(colnames(data), "y")
+        cols_ctrl <- sample(setdiff(fnames, cols_mis), floor(length(fnames)/2))
+        missMethods::delete_MAR_rank(data, p = missing_prob, 
+                                     cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
+      }
+    } else if (pattern == "MNAR") {
+      miss_fun <- function(data, cols_mis) {
+        missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = cols_mis)
+      } 
+    } else {
+      stop("Unknown missing data pattern")
+    }
+    
+    # Impute missing data
+    imputation_method = job$prob.pars$imputation_method
+    if (imputation_method == "mean") {
+      impute_fun <- function(data) {
+        list(missMethods::impute_mean(data))
+      } 
+    } else if (imputation_method == "mice") {
+      impute_fun <- function(data) {
+        imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100,
+                          print = FALSE)
+        complete(imp, "all")
+      }
+    } else if (imputation_method == "mice_rf") {
+      impute_fun <- function(data) {
+        imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100,
+                          print = FALSE, method = "rf")
+        complete(imp, "all")
+      }
+    } else if (imputation_method == "missForest") {
+      impute_fun <- function(data) {
+        imp <- missRanger(data, verbose = 0, 
+                          num.trees = 100, num.threads = 1)
+        list(imp)
+      } 
+    } else {
+      stop("Unknown imputation method")
+    }
+    
+    # Missing data
+    train_missing = job$prob.pars$train_missing
+    test_missing = job$prob.pars$test_missing
+    fnames = setdiff(colnames(dat_all), "y")
+    cols_mis = sample(fnames, floor(length(fnames)/2))
+    
+    if (train_missing) {
+      dat_all <- miss_fun(dat_all, cols_mis)
+      dat_all <- impute_fun(dat_all)
+    } else {
+      dat_all <- list(dat_all)
+    }
+    
+    results = lapply(seq_along(dat_all), function(i) {
+      lapply(nrefits, function(m) {
+        dat <- dat_all[[i]]
+        if (samp_strategy == "subsampling"){
+          train_ids = sample(1:nrow(dat), size = SAMPLING_FRACTION * nrow(dat), replace = FALSE)
+          train_dat = dat[train_ids,]
+          test_dat = dat[setdiff(1:nrow(dat), train_ids), ]
+        } else if (samp_strategy == "bootstrap") {
+          # Size here is n and not n1. Due to replace = TRUE, n_unique(train_dat) =~ 0.632 * n
+          train_ids = sample(1:nrow(dat), size = nrow(dat), replace = TRUE)
+          train_dat = dat[train_ids,]
+          test_dat = dat[setdiff(1:nrow(dat), train_ids), ]
+        } else if (samp_strategy == "ideal"){
+          # Completely fresh data for both training and test
+          train_dat = gen_data(SAMPLING_FRACTION * nrow(dat))
+          test_dat  = gen_data(SAMPLING_FRACTION * nrow(dat))
+          #gd = gen_data
+        } else {
+          print(sprintf("Strategy %s not implemented", job$prob.pars$sampling_strategy))
         }
-      } else if (pattern == "MAR") {
-        miss_fun <- function(data, cols_mis) {
-          # the other half are used as control variables
-          fnames = setdiff(colnames(data), "y")
-          cols_ctrl <- sample(setdiff(fnames, cols_mis), floor(length(fnames)/2))
-          missMethods::delete_MAR_rank(data, p = missing_prob, 
-                                       cols_mis = cols_mis, cols_ctrl = cols_ctrl) 
-        }
-      } else if (pattern == "MNAR") {
-        miss_fun <- function(data, cols_mis) {
-          missMethods::delete_MNAR_rank(data, p = missing_prob, cols_mis = cols_mis)
-        } 
-      } else {
-        stop("Unknown missing data pattern")
-      }
-      
-      # Impute missing data
-      imputation_method = job$prob.pars$imputation_method
-      if (imputation_method == "mean") {
-        impute_fun <- function(data) {
-          list(missMethods::impute_mean(data))
-        } 
-      } else if (imputation_method == "mice") {
-        impute_fun <- function(data) {
-          imp <- mice::mice(data, m = job$prob.pars$missing_prob * 100,
-                            print = FALSE)
-          complete(imp, "all")
-        }
-      } else if (imputation_method == "missForest") {
-        impute_fun <- function(data) {
-          imp <- missRanger(train_dat, verbose = 0, 
-                            num.trees = 100, num.threads = 1)
-          list(imp)
-        } 
-      } else {
-        stop("Unknown imputation method")
-      }
-      
-      # Missing data
-      train_missing = job$prob.pars$train_missing
-      test_missing = job$prob.pars$test_missing
-      fnames = setdiff(colnames(train_dat), "y")
-      cols_mis = sample(fnames, floor(length(fnames)/2))
-      if (train_missing) {
-        train_dat <- miss_fun(train_dat, cols_mis)
-        train_dat <- impute_fun(train_dat)
-      } else {
-        train_dat <- list(train_dat)
-      }
-      if (test_missing) {
-        test_dat <- miss_fun(test_dat, cols_mis)
-        test_dat <- impute_fun(test_dat)
-      } else {
-        test_dat <- list(test_dat)
-      }
-      
-      # Creates the prediction function
-      mods <- lapply(1:length(train_dat), function(i) {
-        train_mod(data = train_dat[[i]])
+        
+        # Creates the prediction function
+        mod = train_mod(data = train_dat)
+        fh = function(x) pred_fun(mod, newdata = x)
+        pfis = compute_pfis(test_dat, job$prob.pars$n_perm, fh)
+        pdps = compute_pdps(test_dat, fh)
+        shaps = compute_shaps(test_dat, train_dat, fh, mod)
+        perf = data.table(mse = mean((fh(test_dat) - test_dat$y)^2))
+        pfis$refit_id = pdps$refit_id = shaps$refit_id = perf$refit_id = m
+        pfis$imp_id = pdps$imp_id = shaps$imp_id = perf$imp_id = i
+        
+        list("pfis" = pfis, "pdps" = pdps, "shaps" = shaps, "perf" = perf)
       })
-      
-      imps <- max(length(train_dat), length(test_dat))
-      
-      # PFI
-      pfis = rbindlist(lapply(1:imps, function(i) {
-        if (length(train_dat) > 1) {
-          fh = function(x) pred_fun(mods[[i]], newdata = x)
-        } else {
-          fh = function(x) pred_fun(mods[[1]], newdata = x)
-        }
-        if (length(test_dat) > 1) {
-          td = test_dat[[i]]
-        } else {
-          td = test_dat[[1]]
-        }
-        
-        pfis = compute_pfis(td, job$prob.pars$n_perm, fh, gen_data = gd)
-        pfis$refit_id = m
-        pfis$imp_id = i
-        pfis
-      }))
-      
-      # PDP
-      pdps = rbindlist(lapply(1:imps, function(i) {
-        if (length(train_dat) > 1) {
-          fh = function(x) pred_fun(mods[[i]], newdata = x)
-        } else {
-          fh = function(x) pred_fun(mods[[1]], newdata = x)
-        }
-        if (length(test_dat) > 1) {
-          td = test_dat[[i]]
-        } else {
-          td = test_dat[[1]]
-        }
-        
-        pdps = compute_pdps(td, fh)
-        pdps$refit_id = m
-        pdps$imp_id = i
-        pdps
-      }))
-      
-      # SHAP
-      if (model %in% c("lm", "xgboost")) {
-        shaps = rbindlist(lapply(1:imps, function(i) {
-          if (length(train_dat) > 1) {
-            fh = function(x) pred_fun(mods[[i]], newdata = x)
-            fit = mods[[i]]
-            trdat = train_dat[[i]] 
-          } else {
-            fh = function(x) pred_fun(mods[[1]], newdata = x)
-            fit = mods[[1]]
-            trdat = train_dat[[1]] 
-          }
-          if (length(test_dat) > 1) {
-            tedat = test_dat[[i]]
-          } else {
-            tedat = test_dat[[1]]
-          }
-          
-          shaps = compute_shaps(tedat, trdat, fh, fit)
-          shaps$refit_id = m
-          shaps$imp_id = i
-          shaps
-        }))
-      } else {
-        shaps = NULL
-      }
-      
-      # Prediction performance
-      perf = rbindlist(lapply(1:imps, function(i) {
-        if (length(train_dat) > 1) {
-          fh = function(x) pred_fun(mods[[i]], newdata = x)
-          fit = mods[[i]]
-          trdat = train_dat[[i]] 
-        } else {
-          fh = function(x) pred_fun(mods[[1]], newdata = x)
-          fit = mods[[1]]
-          trdat = train_dat[[1]] 
-        }
-        if (length(test_dat) > 1) {
-          tedat = test_dat[[i]]
-        } else {
-          tedat = test_dat[[1]]
-        }
-        
-        perf = data.table(mse = mean((fh(tedat) - tedat$y)^2))
-        perf$refit_id = m
-        perf$imp_id = i
-        perf
-      }))
-      
-      list("pfis" = pfis, "pdps" = pdps, "shaps" = shaps, "perf" = perf)
     })
-    pfis = rbindlist(lapply(results, function(x) x[["pfis"]]))
-    pdps = rbindlist(lapply(results, function(x) x[["pdps"]]))
-    shaps = rbindlist(lapply(results, function(x) x[["shaps"]]))
-    perf = rbindlist(lapply(results, function(x) x[["perf"]]))
-
+    pfis = rbindlist(lapply(results, function(x) rbindlist(lapply(x, function(y) y[["pfis"]]))))
+    pdps = rbindlist(lapply(results, function(x) rbindlist(lapply(x, function(y) y[["pdps"]]))))
+    shaps = rbindlist(lapply(results, function(x) rbindlist(lapply(x, function(y) y[["shaps"]]))))
+    perf = rbindlist(lapply(results, function(x) rbindlist(lapply(x, function(y) y[["perf"]]))))
+    
     # Loop over refit_id to simulate different number of models
     res_pfi = rbindlist(lapply(2:max(pfis$refit_id), function(i) {
       t_alpha = qt(1 - 0.05/2, df = i - 1)
