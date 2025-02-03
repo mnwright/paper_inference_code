@@ -37,31 +37,33 @@ coverage_shap_mean[train_missing & !test_missing, missing := "Train"]
 coverage_shap_mean[!train_missing & test_missing, missing := "Test"]
 coverage_shap_mean[, missing := factor(missing)]
 
-plot_fun <- function(iml_method, learner) {
+plot_fun <- function(iml_method) {
   if (iml_method == "PFI") {
-    coverage_mean = coverage_pfi_mean[nrefits == 20 & algorithm == learner, ]
+    coverage_mean = coverage_pfi_mean[nrefits == 20, ]
   } else if (iml_method == "PDP") {
-    coverage_mean = coverage_pdp_mean[nrefits == 20 & algorithm == learner, ]
+    coverage_mean = coverage_pdp_mean[nrefits == 20 ]
   } else if (iml_method == "SHAP") {
-    coverage_mean = coverage_shap_mean[nrefits == 20 & algorithm == learner, ]
+    coverage_mean = coverage_shap_mean[nrefits == 20, ]
   } else {
     stop("Unknown iml method")
   }
   
   coverage_mean <- coverage_mean[, .(avg_width = mean(avg_width)), 
-                                 by = .(n, problem, sampling_strategy, missing,
+                                 by = .(n, problem, algorithm, sampling_strategy, missing,
                                         missing_prob, pattern, imputation_method)]
   
   pars <- expand.grid(n = unique(coverage_mean$n), 
                       sampling_strategy = as.character(unique(coverage_mean$sampling_strategy)), 
                       missing = setdiff(unique(coverage_mean$missing), "None"), 
                       pattern = setdiff(as.character(unique(coverage_mean$pattern)), "None"), 
+                      algorithm = as.character(unique(coverage_mean$algorithm)),
                       #   missing_prob = setdiff(unique(coverage_mean$missing_prob), 0), 
                       stringsAsFactors = FALSE)
-  mapply(function(xn, xmissing, xpattern, xsampling_strategy) {
+  mapply(function(xn, xmissing, xpattern, xalgorithm, xsampling_strategy) {
     ggplot(coverage_mean[n == xn & 
                            missing %in% c("None", xmissing) & 
                            pattern %in% c("None", xpattern) & 
+                           algorithm %in% xalgorithm &
                            #  missing_prob %in% c(0, xmissing_prob) & 
                            sampling_strategy == xsampling_strategy, 
     ],
@@ -76,17 +78,16 @@ plot_fun <- function(iml_method, learner) {
       scale_color_discrete("Imputation Method") + 
       #geom_hline(yintercept = 0) + 
       ggtitle(sprintf("%s (learner = %s, n = %s, sampling = %s, missing = %s, pattern = %s)", 
-                      iml_method, learner, xn, xsampling_strategy, xmissing, xpattern))
-  }, pars$n, pars$missing, pars$pattern, pars$sampling_strategy, SIMPLIFY = FALSE)
+                      iml_method, xalgorithm, xn, xsampling_strategy, xmissing, xpattern))
+  }, pars$n, pars$missing, pars$pattern, pars$algorithm, pars$sampling_strategy, SIMPLIFY = FALSE)
 }
 
 iml_methods <- c("PFI", "PDP", "SHAP")
-learners <- c("lm", "xgboost")
-pars <- data.table(expand.grid(iml_method = iml_methods, learner = learners, stringsAsFactors = FALSE))
+pars <- data.table(expand.grid(iml_method = iml_methods, stringsAsFactors = FALSE))
 #pars <- pars[!(iml_method == "SHAP" & learner == "randomForest"), ]
-mapply(function(iml_method, learner) {
-  p <- plot_fun(iml_method, learner)
-  ggsave(sprintf("%s/width_%s_%s.pdf", fig_dir, iml_method, learner), wrap_plots(p, ncol = 2), width = 20, height = 20, 
+mapply(function(iml_method) {
+  p <- plot_fun(iml_method)
+  ggsave(sprintf("%s/width_%s.pdf", fig_dir, iml_method), wrap_plots(p, ncol = 2), width = 20, height = 20, 
          limitsize = FALSE)
-}, pars$iml_method, pars$learner, SIMPLIFY = FALSE)
+}, pars$iml_method, SIMPLIFY = FALSE)
 
