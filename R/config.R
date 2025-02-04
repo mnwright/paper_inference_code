@@ -6,7 +6,7 @@ library(ggplot2)
 library(here)
 data_dir = here::here("./data")
 fig_dir = here::here("./plots")
-res_dir = here::here("./results")
+res_dir = "/opt/projects/iml_imputation" #here::here("./results")
 
 # define color
 gg_color_hue = function(n) {
