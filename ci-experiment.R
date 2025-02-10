@@ -79,7 +79,7 @@ summarizeExperiments()
 # =============================================================================
 
 #testJob(1)
-ids = findExperiments(repls = 1:100) # 101:1000
+ids = findExperiments(repls = 1:1000)
 ids[, chunk := chunk(job.id, chunk.size = 1)]
 ids = ids[order(chunk), ]
 submitJobs(ids)
